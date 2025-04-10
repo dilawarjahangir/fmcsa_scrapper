@@ -25,8 +25,8 @@ const modalContent = {
 };
 
 const Modal = ({ isOpen, onClose, data }) => {
+  console.log(data)
   if (!isOpen) return null;
-  console.log(data);
 
   return (
     <div style={modalOverlay} onClick={onClose}>
