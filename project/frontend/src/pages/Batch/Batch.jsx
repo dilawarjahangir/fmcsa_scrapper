@@ -33,7 +33,7 @@ const Batch = () => {
       for (let i = 0; i < Number(tillNumber); i++) {
         try {
           const response = await fetch(
-            "https://majority-truth-spies-tablet.trycloudflare.com/api/carrier",
+            "http://localhost:8000/api/carrier",
             {
               method: "POST",
               headers: {

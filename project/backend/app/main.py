@@ -1,23 +1,27 @@
 from fastapi import FastAPI
-from app.routes import query
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.database import init_db
+from app.routes import query
 
-app = FastAPI(
-    title="FMCSA Query API",
-    description="API to query FMCSA data using FastAPI and BeautifulSoup.",
-)
+def create_app() -> FastAPI:
+    # Initialize the database schema (creates table if not exists)
+    init_db()
 
+    app = FastAPI(
+        title="FMCSA Query API (Postgres + Timestamps)",
+        description="API to query FMCSA data using FastAPI, psycopg2, and Postgres, with date tracking.",
+    )
 
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origin_regex=".*",  # Allow all origins
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origin_regex=".*",  # Allow all origins using a regex
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    app.include_router(query.router, prefix="/api")
+    return app
 
-
-# Include our query router with a prefix (e.g. /api)
-app.include_router(query.router, prefix="/api")
+app = create_app()
