@@ -1,210 +1,160 @@
 import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Modal from "../../components/Modal";
+import CarrierData from "../../components/CarrierData";
 
 const Batch = () => {
-  const [mcNumber, setMcNumber] = useState("");
+  // Sidebar dates
+  const [runDates, setRunDates]         = useState([]);
+  const [datesLoading, setDatesLoading] = useState(false);
+  const [datesError, setDatesError]     = useState("");
+  const navigate = useNavigate();
+
+  // Original batch search state
+  const [mcNumber, setMcNumber]     = useState("");
   const [tillNumber, setTillNumber] = useState("");
-  const [batchData, setBatchData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isOpen, setIsOpen] = useState(false);
+  const [batchData, setBatchData]   = useState(null);
+  const [loading, setLoading]       = useState(false);
+  const [error, setError]           = useState("");
+  const [isOpen, setIsOpen]         = useState(false);
   const [singleData, setSingleData] = useState(null);
 
-  // Load previously searched batch data from localStorage on mount.
+  // Fetch run‑dates once
   useEffect(() => {
-    const storedData = localStorage.getItem("batchData");
-    const storedParams = localStorage.getItem("batchSearch");
-    if (storedData && storedParams) {
-      setBatchData(JSON.parse(storedData));
-      const { mcNumber, tillNumber } = JSON.parse(storedParams);
-      setMcNumber(mcNumber);
-      setTillNumber(tillNumber);
-    }
+    setDatesLoading(true);
+    fetch("http://localhost:8000/api/carriers/dates")
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        return res.json();
+      })
+      .then(dates => {
+        setRunDates(dates);
+        setDatesLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setDatesError("Failed to load run dates");
+        setDatesLoading(false);
+      });
   }, []);
-  console.log(batchData)
+
   const fetchBatchData = async () => {
     setLoading(true);
     setError("");
-    setBatchData({}); // Reset batchData to an empty object
+    setBatchData(null);
 
     try {
-      let currentMcNumber = Number(mcNumber); // Ensure it's a number
+      const res = await fetch("http://localhost:8000/api/carrier/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mc_number: mcNumber.trim(),
+          till_number: Number(tillNumber),
+        }),
+      });
+      if (!res.ok) throw new Error(`Server responded ${res.status}`);
+      const { results } = await res.json();
 
-      for (let i = 0; i < Number(tillNumber); i++) {
-        try {
-          const response = await fetch(
-            "http://localhost:8000/api/carrier",
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({ mc_number: String(currentMcNumber) }),
-            }
-          );
-
-          if (!response.ok) {
-            // Attempt to extract error details if available
-            let errorMessage = "Server error";
-            try {
-              const errorResult = await response.json();
-              errorMessage = errorResult.error || errorMessage;
-            } catch (jsonError) {
-              // Parsing failed, use default message
-            }
-
-            // Update state with error info for the current MC number
-            setBatchData((prevData) => {
-              const updatedData = {
-                ...prevData,
-                [currentMcNumber]: { error: errorMessage },
-              };
-              localStorage.setItem("batchData", JSON.stringify(updatedData));
-              return updatedData;
-            });
-          } else {
-            const result = await response.json();
-            // Extract the MC number from the API response
-            const apiMcNumber =
-              result.data?.["OPERATING AUTHORITY INFORMATION"]?.["MC/MX/FF Number(s):"];
-            // Remove the "MC-" prefix if present, otherwise use the current counter
-            const mcKey = apiMcNumber ? apiMcNumber.replace("MC-", "") : currentMcNumber;
-
-            // Update state with the fetched data using the correct MC key
-            setBatchData((prevData) => {
-              const updatedData = {
-                ...prevData,
-                [mcKey]: result.data,
-              };
-              localStorage.setItem("batchData", JSON.stringify(updatedData));
-              return updatedData;
-            });
-          }
-        } catch (err) {
-          // Handle network or unexpected errors for the current iteration
-          setBatchData((prevData) => {
-            const updatedData = {
-              ...prevData,
-              [currentMcNumber]: { error: err.message },
-            };
-            localStorage.setItem("batchData", JSON.stringify(updatedData));
-            return updatedData;
-          });
-        }
-        // Move to the next MC number regardless of success or error
-        currentMcNumber++;
-      }
-
+      // filter successful
+      const filtered = Object.fromEntries(
+        Object.entries(results)
+          .filter(([, p]) => !p.error && p.data)
+          .map(([mc, p]) => [mc, p.data])
+      );
+      setBatchData(filtered);
+      localStorage.setItem("batchData", JSON.stringify(filtered));
       localStorage.setItem("batchSearch", JSON.stringify({ mcNumber, tillNumber }));
     } catch (err) {
-      setError("Failed to fetch batch data. Please try again.");
+      setError(err.message || "Failed to fetch data.");
       console.error(err);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = e => {
     e.preventDefault();
-    if (mcNumber.trim() && tillNumber.trim()) {
-      fetchBatchData();
-    }
+    if (mcNumber.trim() && tillNumber.trim()) fetchBatchData();
   };
 
-  // Render a summary card for each MC.
   const renderSummary = (mc, data) => {
-    // Skip rendering if the data object is empty
-    if (!data || Object.keys(data).length === 0) return null;
-
-    if (data.error) {
-      return (
-        <div
-          key={mc}
-          className="bg-white border border-gray-200 rounded shadow cursor-pointer"
-        >
-          <h2 className="text-xl font-bold mb-2">MC this is mc : {mc-1}</h2>
-          <p className="text-red-500">Error: {data.error}</p>
-        </div>
-      );
-    }
-
-    // Extract details from the USDOT INFORMATION section.
-    let usdotStatus = "";
-    let entityType = "";
-    if (data["USDOT INFORMATION"]) {
-      usdotStatus =
-        data["USDOT INFORMATION"]["USDOT Status:"] ||
-        data["USDOT INFORMATION"]["USDOT Status"] ||
-        "";
-      entityType =
-        data["USDOT INFORMATION"]["Entity Type:"] ||
-        data["USDOT INFORMATION"]["Entity Type"] ||
-        "";
-    }
+    const usdotStatus = data["USDOT INFORMATION"]?.["USDOT Status:"] ?? "";
+    const entityType  = data["USDOT INFORMATION"]?.["Entity Type:"]  ?? "";
     return (
       <div
         key={mc}
         className="p-4 bg-white border border-gray-200 rounded shadow cursor-pointer hover:shadow-lg transition"
-        onClick={() => {
-          setIsOpen(true);
-          setSingleData(data);
-        }}
+        onClick={() => { setIsOpen(true); setSingleData(data); }}
       >
         <h2 className="text-xl font-bold mb-2">MC: {mc}</h2>
-        <p>
-          <span className="font-medium">USDOT Status:</span> {usdotStatus}
-        </p>
-        <p>
-          <span className="font-medium">Entity Type:</span> {entityType}
-        </p>
+        <p><span className="font-medium">USDOT Status:</span> {usdotStatus}</p>
+        <p><span className="font-medium">Entity Type:</span> {entityType}</p>
       </div>
     );
   };
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center font-inter">
-      <h1 className="text-3xl font-bold mb-6 font-alegreya">
-        Batch Carrier Information Lookup
-      </h1>
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col items-center space-y-4 w-full max-w-md"
-      >
-        <input
-          type="text"
-          placeholder="Starting MC Number"
-          value={mcNumber}
-          onChange={(e) => setMcNumber(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <input
-          type="number"
-          placeholder="Till Number (count)"
-          value={tillNumber}
-          onChange={(e) => setTillNumber(e.target.value)}
-          className="w-full px-4 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button
-          type="submit"
-          className="w-full px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
-        >
-          Search Batch
-        </button>
-      </form>
-      {loading && <p className="mt-4 text-blue-600">Loading...</p>}
-      {error && <p className="mt-4 text-red-600">{error}</p>}
-      {batchData && (
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-4xl">
-          {Object.keys(batchData)
-            .map((mc) => renderSummary(mc, batchData[mc]))
-            .filter((element) => element !== null)}
-        </div>
-      )}
-      <Modal
-        isOpen={isOpen}
-        onClose={() => setIsOpen(false)}
-        data={singleData}
-      />
+    <div className="flex min-h-screen bg-gray-100 font-inter">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white border-r p-6">
+        <h2 className="text-xl font-bold mb-4 font-alegreya">Run Dates</h2>
+        {datesLoading && <p>Loading dates…</p>}
+        {datesError   && <p className="text-red-600">{datesError}</p>}
+        <ul className="space-y-2">
+          {runDates.map(date => (
+            <li key={date}>
+              <button
+                className="text-blue-600 hover:underline"
+                onClick={() => navigate(`/by-date/${date}`)}
+              >
+                {date}
+              </button>
+            </li>
+          ))}
+        </ul>
+      </aside>
+
+      {/* Main content */}
+      <main className="flex-1 p-6">
+        <h1 className="text-3xl font-bold mb-6 font-alegreya">
+          Batch Carrier Information Lookup
+        </h1>
+
+        {/* search form */}
+        <form onSubmit={handleSubmit} className="flex flex-col space-y-4 max-w-md">
+          <input
+            type="text"
+            placeholder="Starting MC Number"
+            value={mcNumber}
+            onChange={e => setMcNumber(e.target.value)}
+            className="w-full px-4 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="number"
+            placeholder="Till Number (count)"
+            value={tillNumber}
+            onChange={e => setTillNumber(e.target.value)}
+            className="w-full px-4 py-2 border rounded focus:ring-2 focus:ring-blue-500"
+          />
+          <button
+            type="submit"
+            className="w-full px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 transition"
+          >
+            Search Batch
+          </button>
+        </form>
+
+        {loading && <p className="mt-4 text-blue-600">Loading…</p>}
+        {error   && <p className="mt-4 text-red-600">{error}</p>}
+
+        {batchData && (
+          <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {Object.keys(batchData).map(mc => renderSummary(mc, batchData[mc]))}
+          </div>
+        )}
+
+        <Modal isOpen={isOpen} onClose={() => setIsOpen(false)} data={singleData} />
+      </main>
     </div>
   );
 };
