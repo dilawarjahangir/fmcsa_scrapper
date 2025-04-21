@@ -6,14 +6,17 @@ export default function CarriersByDate() {
   const { date } = useParams();
   const navigate = useNavigate();
 
-  const [carriers, setCarriers] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [error, setError]       = useState('');
-  const [isOpen, setIsOpen]     = useState(false);
-  const [modalData, setModalData] = useState(null);
-  const [modalMc, setModalMc]     = useState('');
+  const [carriers, setCarriers]           = useState([]);
+  const [loading, setLoading]             = useState(true);
+  const [error, setError]                 = useState('');
+  const [isOpen, setIsOpen]               = useState(false);
+  const [modalData, setModalData]         = useState(null);
+  const [modalMc, setModalMc]             = useState('');
+  const [showLeadsOnly, setShowLeadsOnly] = useState(false);
+  const [searchTerm, setSearchTerm]       = useState('');
 
   useEffect(() => {
+    setLoading(true);
     fetch(`http://localhost:8000/api/carriers/by-date?date=${date}`)
       .then(r => {
         if (!r.ok) throw new Error(r.statusText);
@@ -38,9 +41,8 @@ export default function CarriersByDate() {
 
   const handleAction = async (action, mc) => {
     try {
+      const carrier = carriers.find(c => c.mc_number === mc);
       if (action === 'called') {
-        // toggle called
-        const carrier = carriers.find(c => c.mc_number === mc);
         const nextCalled = !carrier.called;
         const res = await fetch(
           `http://localhost:8000/api/carriers/${mc}/called`,
@@ -57,10 +59,7 @@ export default function CarriersByDate() {
             c.mc_number === mc ? { ...c, called: updated.called } : c
           )
         );
-
       } else {
-        // toggle lead
-        const carrier = carriers.find(c => c.mc_number === mc);
         const nextLead = !carrier.lead;
         const res = await fetch(
           `http://localhost:8000/api/carriers/${mc}/lead`,
@@ -86,6 +85,13 @@ export default function CarriersByDate() {
     }
   };
 
+  // filter by lead toggle, then by search term
+  const filtered = carriers
+    .filter(c => (showLeadsOnly ? c.lead : true))
+    .filter(c =>
+      c.mc_number.toLowerCase().includes(searchTerm.trim().toLowerCase())
+    );
+
   if (loading) return <p>Loading…</p>;
   if (error)   return <p className="text-red-600">{error}</p>;
 
@@ -105,37 +111,62 @@ export default function CarriersByDate() {
       </aside>
 
       <main className="flex-1 p-6">
-        <h1 className="text-2xl font-bold mb-4">Carriers on {date}</h1>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {carriers.map(c => (
-            <div
-              key={c.mc_number}
-              className="p-4 bg-white border rounded shadow cursor-pointer hover:shadow-lg transition"
-              onClick={() => openModal(c.data, c.mc_number)}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-4 space-y-4 md:space-y-0">
+          <h1 className="text-2xl font-bold">Carriers on {date}</h1>
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setShowLeadsOnly(prev => !prev)}
+              className={`px-4 py-2 rounded font-medium transition
+                ${showLeadsOnly
+                  ? 'bg-blue-600 text-white hover:bg-blue-700'
+                  : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
             >
-              <div className="flex items-center mb-2">
-                <span
-                  className={`inline-block w-3 h-3 rounded-full mr-2 ${
-                    c.lead
-                      ? 'bg-blue-500'
-                      : c.called
-                      ? 'bg-green-500'
-                      : 'bg-gray-400'
-                  }`}
-                />
-                <h2 className="text-xl font-bold">MC: {c.mc_number}</h2>
-              </div>
-              <p>
-                <span className="font-medium">USDOT Status:</span>{' '}
-                {c.data['USDOT INFORMATION']?.['USDOT Status:'] || '—'}
-              </p>
-              <p>
-                <span className="font-medium">Entity Type:</span>{' '}
-                {c.data['USDOT INFORMATION']?.['Entity Type:'] || '—'}
-              </p>
-            </div>
-          ))}
+              {showLeadsOnly ? 'Show All' : 'Show Leads Only'}
+            </button>
+            <input
+              type="text"
+              placeholder="Search MC…"
+              value={searchTerm}
+              onChange={e => setSearchTerm(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
         </div>
+
+        {filtered.length === 0 ? (
+          <p className="text-gray-600">No carriers match your filters.</p>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filtered.map(c => (
+              <div
+                key={c.mc_number}
+                className="p-4 bg-white border rounded shadow cursor-pointer hover:shadow-lg transition"
+                onClick={() => openModal(c.data, c.mc_number)}
+              >
+                <div className="flex items-center mb-2">
+                  <span
+                    className={`inline-block w-3 h-3 rounded-full mr-2 ${
+                      c.lead
+                        ? 'bg-blue-500'
+                        : c.called
+                        ? 'bg-green-500'
+                        : 'bg-gray-400'
+                    }`}
+                  />
+                  <h2 className="text-xl font-bold">MC: {c.mc_number}</h2>
+                </div>
+                <p>
+                  <span className="font-medium">USDOT Status:</span>{' '}
+                  {c.data['USDOT INFORMATION']?.['USDOT Status:'] || '—'}
+                </p>
+                <p>
+                  <span className="font-medium">Entity Type:</span>{' '}
+                  {c.data['USDOT INFORMATION']?.['Entity Type:'] || '—'}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
 
         <Modal
           isOpen={isOpen}
